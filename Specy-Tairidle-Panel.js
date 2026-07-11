@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Specy Tairidle Shenanigans Panel
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Specy Tairidle Panel with multiple shenanigans and a fancy UI
 // @author       5p3c7r3
 // @match        https://tairidle.com/*
@@ -24,10 +24,10 @@
             settings: false
 
         },
-        autoE4Active: false,
-        autoHealActive: false,
+        autoE4Active: localStorage.getItem("specy-auto-e4") === "true",
+        autoHealActive: localStorage.getItem("specy-auto-heal") === "true",
         autoHealMinutes: parseInt(localStorage.getItem('specy-qol-heal-minutes') || '3', 10),
-        autoHatchActive: false,
+        autoHatchActive: localStorage.getItem("specy-auto-hatch") === "true",
     };
     CONFIG.panelVisible = true;
 
@@ -565,8 +565,6 @@
         if (panel) {
             panel.innerHTML = createPanelContent();
             attachEventListeners();
-            checkFightAgainButton();
-            checkGeneticsAbortButton();
         }
     }
 
@@ -664,26 +662,36 @@
         }, duration);
     }
 
-    // =========================
-    // SYNC UI WITH CONFIG
-    // =========================
+    function updateToggles() {
 
-    function syncCombatControls() {
-        const content = document.getElementById('specy-qol-content');
-        const arrow = document.getElementById('header-arrow');
-        const slider = document.getElementById('heal-interval-slider');
-        const label = document.getElementById('heal-interval-label');
-        const e4Toggle = document.getElementById('auto-e4-toggle');
-        const healToggle = document.getElementById('auto-heal-toggle');
+        document.getElementById("auto-e4-toggle") ?.classList.toggle("active", CONFIG.autoE4Active);
 
-        if (content) content.style.display = CONFIG.sectionsCollapsed.title ? 'none' : 'block';
-        if (arrow) arrow.textContent = CONFIG.sectionsCollapsed.title ? '▶' : '▼';
-        if (slider) slider.value = CONFIG.autoHealMinutes;
-        if (label) label.textContent = CONFIG.autoHealMinutes;
-        if (e4Toggle) e4Toggle.classList.toggle('active', CONFIG.autoE4Active);
-        if (healToggle) healToggle.classList.toggle('active', CONFIG.autoHealActive);
+        document.getElementById("auto-heal-toggle") ?.classList.toggle("active", CONFIG.autoHealActive);
+
+        document.getElementById("auto-hatch-toggle") ?.classList.toggle("active", CONFIG.autoHatchActive);
+
     }
 
+    function toggleSetting(key, enabledMessage, disabledMessage) {
+
+        CONFIG[key] = !CONFIG[key];
+
+        const storageKeys = {
+            autoE4Active: "specy-auto-e4",
+            autoHealActive: "specy-auto-heal",
+            autoHatchActive: "specy-auto-hatch"
+        };
+
+        localStorage.setItem(storageKeys[key], CONFIG[key]);
+
+        updateToggles();
+
+        showToast(
+            CONFIG[key] ? enabledMessage : disabledMessage,
+            CONFIG[key] ? "success" : "info"
+        );
+
+    }
 
     // =========================
     // AUTO E4 FIGHT & HEAL LOGIC
@@ -703,6 +711,11 @@
 
         busy = true;
         btn.click();
+        showToast(
+            "⚔️ Elite Four Started",
+            "success",
+            1200
+        );
         setTimeout(() => { busy = false; }, 1000);
     }
 
@@ -721,8 +734,22 @@
     // Auto Heal Logic
 
     function clickAutoHeal() {
-        const healBtn = document.querySelector(HEAL_BUTTON_SELECTOR);
-        if (healBtn) healBtn.click();
+
+        const healBtn = document.querySelector(
+            HEAL_BUTTON_SELECTOR
+        );
+
+        if (!healBtn)
+            return;
+
+        healBtn.click();
+
+        showToast(
+            "❤️ Pokémon healed",
+            "success",
+            1200
+        );
+
     }
 
     function restartAutoHealInterval() {
@@ -734,17 +761,6 @@
         autoHealInterval = setInterval(clickAutoHeal, ms);
     }
 
-    const slider = document.getElementById('heal-interval-slider');
-    const label = document.getElementById('heal-interval-label');
-
-    if (slider && label) {
-        slider.addEventListener('input', function() {
-            CONFIG.autoHealMinutes = parseInt(this.value, 10);
-            label.textContent = this.value;
-            restartAutoHealInterval();
-        });
-    }
-
 
     // =========================
     // Auto Hatch Logic
@@ -752,14 +768,9 @@
 
     function getHatchButton() {
 
-        return [...document.querySelectorAll("*")].find(el => {
-
-            return (
-                el.textContent ?.trim().startsWith("Hatch all") &&
-                el.offsetParent !== null
-            );
-
-        });
+        return [...document.querySelectorAll("*")].find(el =>
+            el.textContent?.trim().startsWith("Hatch all")
+        );
 
     }
 
@@ -768,15 +779,18 @@
         if (!CONFIG.autoHatchActive)
             return;
 
-        const button = getHatchButton();
+        const btn = getHatchButton();
 
-        if (!button)
+        if (!btn)
             return;
 
-        if (button.disabled)
-            return;
+        btn.click();
 
-        button.click();
+        showToast(
+            "🥚 Eggs Hatched",
+            "success",
+            1200
+        );
 
     });
 
@@ -813,58 +827,107 @@
         });
 
         const themeSelect = document.getElementById('theme-select');
-        if (themeSelect) themeSelect.addEventListener('change', function() { changeTheme(this.value); });
+        if (themeSelect) themeSelect.addEventListener('change', function () {
+            changeTheme(this.value); 
+            showToast(
+                `🎨 Theme changed`,
+                "info"
+            );
+        });
 
         const languageSelect = document.getElementById('language-select');
-        if (languageSelect) languageSelect.addEventListener('change', function() { changeLanguage(this.value); });
+        if (languageSelect) languageSelect.addEventListener('change', function () {
+            changeLanguage(this.value);
 
-        const e4Toggle = document.getElementById('auto-e4-toggle');
+            showToast(
+                "🌍 Language changed",
+                "info"
+            );
+         });
+
         if (e4Toggle) {
-            e4Toggle.classList.toggle('active', CONFIG.autoE4Active);
-            e4Toggle.addEventListener('click', () => {
-                CONFIG.autoE4Active = !CONFIG.autoE4Active;
-                e4Toggle.classList.toggle('active', CONFIG.autoE4Active);
-                if (CONFIG.autoE4Active) startAutoE4();
-                else stopAutoE4();
+
+            updateToggles();
+
+            e4Toggle.addEventListener("click", () => {
+
+                toggleSetting(
+                    "autoE4Active",
+                    "⚔️ Auto E4 Enabled",
+                    "⚔️ Auto E4 Disabled"
+                );
+
+                if (CONFIG.autoE4Active)
+                    startAutoE4();
+                else
+                    stopAutoE4();
+
             });
+
         }
 
-        const healToggle = document.getElementById('auto-heal-toggle');
         if (healToggle) {
-            healToggle.classList.toggle('active', CONFIG.autoHealActive);
-            healToggle.addEventListener('click', () => {
-                CONFIG.autoHealActive = !CONFIG.autoHealActive;
-                healToggle.classList.toggle('active', CONFIG.autoHealActive);
+
+            updateToggles();
+
+            healToggle.addEventListener("click", () => {
+
+                toggleSetting(
+                    "autoHealActive",
+                    "❤️ Auto Heal Enabled",
+                    "❤️ Auto Heal Disabled"
+                );
+
                 restartAutoHealInterval();
+
             });
+
         }
 
-        const slider = document.getElementById('heal-interval-slider');
-        const label = document.getElementById('heal-interval-label');
         if (slider && label) {
+
             slider.value = CONFIG.autoHealMinutes;
             label.textContent = CONFIG.autoHealMinutes;
-            slider.addEventListener('input', function() {
-                CONFIG.autoHealMinutes = parseInt(this.value, 10);
+
+            slider.addEventListener("input", function() {
+
+                CONFIG.autoHealMinutes = Number(this.value);
+
                 label.textContent = this.value;
-                localStorage.setItem('specy-qol-heal-minutes', this.value);
-                restartAutoHealInterval();
+
             });
+
+            slider.addEventListener("change", function() {
+
+                localStorage.setItem(
+                    "specy-qol-heal-minutes",
+                    this.value
+                );
+
+                restartAutoHealInterval();
+
+                showToast(
+                    `❤️ Heal every ${this.value} minute(s)`,
+                    "info"
+                );
+
+            });
+
         }
 
-        const hatchToggle = document.getElementById("auto-hatch-toggle");
+        const hatchToggle =
+            document.getElementById("auto-hatch-toggle");
 
         if (hatchToggle) {
 
-            hatchToggle.classList.toggle("active", CONFIG.autoHatchActive);
+            updateToggles();
 
             hatchToggle.addEventListener("click", () => {
 
-                CONFIG.autoHatchActive = !CONFIG.autoHatchActive;
-
-                hatchToggle.classList.toggle(
-                    "active",
-                    CONFIG.autoHatchActive
+                toggleSetting(
+                    "autoHatchActive",
+                    "🥚 Auto Hatch Enabled",
+                    "🥚 Auto Hatch Disabled"
                 );
 
             });
@@ -901,7 +964,6 @@
 
         initCollapsibleSections();
         attachEventListeners();
-        syncCombatControls();
 
         hatchObserver.observe(document.body, {
             childList: true,
