@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Specy Tairidle Shenanigans Panel
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.5.2
 // @description  Specy Tairidle Panel with multiple shenanigans and a fancy UI
 // @author       5p3c7r3
 // @match        https://tairidle.com/*
