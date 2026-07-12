@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Specy Tairidle Shenanigans Panel
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
+// @version      1.6.1
 // @description  Specy Tairidle Panel with multiple shenanigans and a fancy UI
 // @author       5p3c7r3
 // @match        https://tairidle.com/*
@@ -25,7 +25,8 @@
         keyboardShortcut: 'h',
         autoE4CheckMs: 1000,
         hatchScanDelayMs: 100,
-        hatchClickCooldownMs: 3000
+        hatchClickCooldownMs: 3000,
+        lastHealDisplayRefreshMs: 1000
     });
 
     const STORAGE_KEYS = Object.freeze({
@@ -36,6 +37,7 @@
         autoE4: 'specy-auto-e4',
         autoHeal: 'specy-auto-heal',
         autoHealMinutes: 'specy-qol-heal-minutes',
+        lastAutoHealAt: 'specy-qol-last-auto-heal-at',
         autoHatch: 'specy-auto-hatch',
         sectionPrefix: 'specy-qol-section-'
     });
@@ -63,6 +65,7 @@
         autoE4Active: false,
         autoHealActive: false,
         autoHealMinutes: 3,
+        lastAutoHealAt: null,
         autoHatchActive: false,
         sectionsCollapsed: Object.freeze({
             title: false,
@@ -305,6 +308,19 @@
         return Math.min(max, Math.max(min, value));
     }
 
+    function readStoredTimestamp(key, fallback = null) {
+        const rawValue = localStorage.getItem(key);
+        if (rawValue === null) {
+            return fallback;
+        }
+
+        const timestamp = Number(rawValue);
+        if (!Number.isFinite(timestamp) || timestamp <= 0) {
+            return fallback;
+        }
+        return timestamp;
+    }
+
     function readStoredJson(key, fallback) {
         try {
             const raw = localStorage.getItem(key);
@@ -346,6 +362,10 @@
             1,
             10
         ),
+        lastAutoHealAt: readStoredTimestamp(
+            STORAGE_KEYS.lastAutoHealAt,
+            DEFAULT_STATE.lastAutoHealAt
+        ),
         autoHatchActive: readStoredBoolean(STORAGE_KEYS.autoHatch, DEFAULT_STATE.autoHatchActive),
         sectionsCollapsed: loadSectionStates()
     };
@@ -353,6 +373,7 @@
     const RUNTIME = {
         autoE4IntervalId: null,
         autoHealIntervalId: null,
+        lastHealDisplayIntervalId: null,
         hatchObserver: null,
         hatchScanTimeoutId: null,
         lastHatchButton: null,
@@ -371,7 +392,8 @@
         content: null,
         toastContainer: null,
         healIntervalSlider: null,
-        healIntervalValue: null
+        healIntervalValue: null,
+        lastHealAgo: null
     };
 
     // =====================================================================
@@ -659,6 +681,21 @@
                 font-weight: 500;
             }
 
+            #${APP.panelId} .heal-interval-label {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+            }
+            
+            #${APP.panelId} #last-heal-ago {
+                flex-shrink: 0;
+                opacity: 0.7;
+                font-size: 11px;
+                font-weight: 400;
+                white-space: nowrap;
+            }
+
             #${APP.panelId} select {
                 width: 100%;
                 padding: 8px;
@@ -803,8 +840,11 @@
 
                         <div class="setting-group">
                             <label class="setting-label" for="heal-interval-slider">
+                            <span>
                                 <span data-i18n="healInterval"></span>:
                                 <span id="heal-interval-value"></span> min
+                            </span>
+                        <span id="last-heal-ago">(—)</span>
                             </label>
                             <input
                                 id="heal-interval-slider"
@@ -929,6 +969,7 @@
         DOM.content = panel.querySelector('#specy-panel-content');
         DOM.healIntervalSlider = panel.querySelector('#heal-interval-slider');
         DOM.healIntervalValue = panel.querySelector('#heal-interval-value');
+        DOM.lastHealAgo = panel.querySelector('#last-heal-ago');
     }
 
     function applyTheme() {
@@ -1047,12 +1088,60 @@
         }
     }
 
+    function formatTimeAgo(timestamp) {
+        if (!timestamp) {
+            return '—';
+        }
+        const elapsedSeconds = Math.max(0,Math.floor((Date.now() - timestamp) / 1000));
+        const formatter = new Intl.RelativeTimeFormat(STATE.language,{numeric: 'auto',style: 'short'});
+        if (elapsedSeconds < 60) {
+            return formatter.format(-elapsedSeconds, 'second');
+        }
+        const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+        if (elapsedMinutes < 60) {
+            return formatter.format(-elapsedMinutes, 'minute');
+        }
+        const elapsedHours = Math.floor(elapsedMinutes / 60);
+        if (elapsedHours < 24) {
+            return formatter.format(-elapsedHours, 'hour');
+        }
+        const elapsedDays = Math.floor(elapsedHours / 24);
+        return formatter.format(-elapsedDays, 'day');
+    }
+
+    function updateLastHealAgoUI() {
+        if (!DOM.lastHealAgo) {
+            return;
+        }
+
+        const timeAgo = formatTimeAgo(STATE.lastAutoHealAt);
+
+        DOM.lastHealAgo.textContent = `(${timeAgo})`;
+    }
+
+    function startLastHealDisplayClock() {
+        if (RUNTIME.lastHealDisplayIntervalId !== null) {
+            window.clearInterval(
+                RUNTIME.lastHealDisplayIntervalId
+            );
+        }
+
+        updateLastHealAgoUI();
+
+        RUNTIME.lastHealDisplayIntervalId =
+            window.setInterval(
+                updateLastHealAgoUI,
+                APP.lastHealDisplayRefreshMs
+            );
+    }
+
     function updateEntireUI() {
         applyTheme();
         applyTranslations();
         updateAllSectionUI();
         updateAllFeatureToggles();
         updateHealIntervalUI();
+        updateLastHealAgoUI();
     }
 
     // =====================================================================
@@ -1128,6 +1217,7 @@
         localStorage.setItem(STORAGE_KEYS.language, STATE.language);
         applyTranslations();
         updateHealIntervalUI();
+        updateLastHealAgoUI();
         showToast(t('languageChanged'), 'info');
     }
 
@@ -1364,13 +1454,18 @@
     }
 
     function clickAutoHeal() {
-        if (!STATE.autoHealActive) return;
-
+        if (!STATE.autoHealActive) {return;}
         const button = findHealButton();
-        if (!button || !isElementVisible(button) || isElementDisabled(button)) return;
-
+        if (!button || !isElementVisible(button) || isElementDisabled(button)) {return;}
         button.click();
-        showToast(t('pokemonHealed'), 'success', 1200);
+        STATE.lastAutoHealAt = Date.now();
+        localStorage.setItem(STORAGE_KEYS.lastAutoHealAt,String(STATE.lastAutoHealAt));
+        updateLastHealAgoUI();
+        showToast(
+            t('pokemonHealed'),
+            'success',
+            1200
+        );
     }
 
     function restartAutoHeal() {
@@ -1488,6 +1583,7 @@
         updateEntireUI();
         applyPanelPosition();
         startSavedAutomations();
+        startLastHealDisplayClock();
 
         document.addEventListener('keydown', handleKeyboardShortcut);
     }
